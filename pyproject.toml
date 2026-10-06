@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labreport"
+version = "0.1.0"
+description = "通用实验报告 CLI：读 Word 模板结构、校验实验数据、LaTeX 转 Word 原生公式(OMML)、填写、自检、转 PDF"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "zerosz-68" }]
+keywords = ["labreport", "docx", "omml", "physics", "experiment-report", "office", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Topic :: Education",
+    "Topic :: Office/Business :: Office Suites",
+]
+dependencies = [
+    "python-docx>=1.1",
+    "lxml>=4.9",
+    "Pillow>=9",
+]
+
+[project.urls]
+Homepage = "https://github.com/zerosz-68/labreport"
+Repository = "https://github.com/zerosz-68/labreport"
+Issues = "https://github.com/zerosz-68/labreport/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+labreport = "labreport.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+labreport = ["skills/*.md", "cards/*.md"]

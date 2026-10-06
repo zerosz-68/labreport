@@ -1,0 +1,36 @@
+{
+  "_说明": "value+unit 按照片原样填；CLI 自动归一化到 SI，expr 里直接用 m_cyl（kg）、D_cyl（m）、T0（s）。",
+  "experiment": "扭摆法测量转动惯量",
+  "source": {
+    "images": ["img1.jpg", "img3.jpg", "img5.jpg", "img8.jpg"],
+    "note": "手写课堂报告书照片；每项的 source 指向具体表格与行列"
+  },
+  "quantities": {
+    "m_cyl":  { "value": 1116.12, "unit": "g",  "uncertainty": 0.01, "source": "img3 表3.4 第1行 质量" },
+    "D_cyl":  { "value": 100.50,  "unit": "mm", "uncertainty": 0.02, "source": "img3 表3.4 第1行 底面直径" },
+    "m_tube": { "value": 668.90,  "unit": "g",  "source": "img3 表3.4 第2行 质量" },
+    "D1_tube":{ "value": 93.84,   "unit": "mm", "source": "img3 表3.4 第2行 内径" },
+    "D2_tube":{ "value": 100.00,  "unit": "mm", "source": "img3 表3.4 第2行 外径" },
+    "m_ball": { "value": 1061.37, "unit": "g",  "source": "img3 表3.4 第3行 质量" },
+    "D_ball": { "value": 111.20,  "unit": "mm", "source": "img3 表3.4 第3行 直径" },
+    "m_bar":  { "value": 685.43,  "unit": "g",  "source": "img3 表3.4 第5行 金属杆+两滑块" }
+  },
+  "measurements": [
+    { "id": "T0", "label": "空盘",             "unit": "ms", "values": [774, 772, 773, 775, 774, 775],      "mean": 774,  "precision": 0, "source": "img5 表3.5 第2行" },
+    { "id": "T1", "label": "空盘+塑料圆柱",    "unit": "ms", "values": [1476, 1482, 1482, 1483, 1488, 1485], "mean": 1483, "precision": 0, "source": "img5 表3.5 第3行" },
+    { "id": "T2", "label": "空盘+空心金属圆柱", "unit": "ms", "values": [1561, 1554, 1552, 1556, 1551, 1562], "mean": 1556, "precision": 0, "source": "img5 表3.5 第4行" },
+    { "id": "T3", "label": "实心球",           "unit": "ms", "values": [1165, 1171, 1178, 1170, 1173, 1172], "mean": 1172, "precision": 0, "source": "img5 表3.5 第5行" }
+  ],
+  "targets": [
+    { "name": "J1理", "expr": "1/8*m_cyl*D_cyl^2", "unit": "kg*m^2", "expected": 1.4091e-3, "tolerance": 0.01 },
+    { "name": "J2理", "expr": "1/8*m_tube*(D1_tube^2+D2_tube^2)", "unit": "kg*m^2", "expected": 1.572e-3, "tolerance": 0.01 },
+    { "name": "J3理", "expr": "1/10*m_ball*D_ball^2", "unit": "kg*m^2", "expected": 1.312e-3, "tolerance": 0.01 },
+    { "name": "K",    "expr": "4*pi^2*J1理/(T1^2-T0^2)", "unit": "N*m/rad", "expected": 0.0348, "tolerance": 0.02 },
+    { "name": "J0",   "expr": "K*T0^2/(4*pi^2)", "unit": "kg*m^2", "expected": 5.28e-4, "tolerance": 0.02 },
+    { "name": "J1实", "expr": "K*(T1^2-T0^2)/(4*pi^2)", "unit": "kg*m^2", "expected": 1.4091e-3, "tolerance": 0.02 },
+    { "name": "J2实", "expr": "K*(T2^2-T0^2)/(4*pi^2)", "unit": "kg*m^2", "expected": 1.604e-3, "tolerance": 0.03 },
+    { "name": "J3实", "expr": "K*T3^2/(4*pi^2)", "unit": "kg*m^2", "expected": 1.206e-3, "tolerance": 0.03 },
+    { "name": "E2",   "expr": "abs(J2实-J2理)/J2理*100", "unit": "%", "expected": 2.04, "tolerance": 0.10 },
+    { "name": "E3",   "expr": "abs(J3实-J3理)/J3理*100", "unit": "%", "expected": 8.08, "tolerance": 0.10 }
+  ]
+}

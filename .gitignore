@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# 运行与测试产物
+tests/_out/
+_labreport_pdf_logs/
+*.plan.json
+
+# 真实报告类文件：默认一律不入库
+# （.docx / .pdf 里常有姓名、学号、成绩等个人信息；确有需要时用 ! 例外放行）
+*.docx
+*.pdf
