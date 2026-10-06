@@ -108,9 +108,9 @@ def add_attachment(doc, images, label: str = "附件", page_break_between: bool 
     box_w, box_h = usable_box(doc)
     if container is not None:
         box_w = max(int(box_w - CELL_MARGIN_CM * EMU_PER_CM), int(box_w * 0.6))
-        # 单元格内还要放标签行与单元格内边距，按 85% 高度留余量：
+        # 单元格内还要放标签行与单元格内边距，按 80% 高度留余量：
         # 图若正好占满一页，表格底框会被挤到下一页，多出一张空白页
-        box_h = int(box_h * 0.85)
+        box_h = int(box_h * 0.80)
     added = []
 
     if label:

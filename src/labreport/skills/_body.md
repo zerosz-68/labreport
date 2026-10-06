@@ -71,7 +71,6 @@ labreport tables 课堂报告书.docx                     # 先看摘要：表�
 
 ```jsonc
 { "table": 2, "row": 6, "col": 1, "append": "五、实验数据记录" },
-{ "table": 2, "row": 6, "col": 1, "append": "以下数据取自《课堂任务报告书》原始记录（手写原件见文末附件）：" },
 { "table": 2, "row": 6, "col": 1, "insert_tables_file": "tables.json" },
 { "table": 2, "row": 6, "col": 1, "append": "六、实验数据处理过程及结果、结论" }
 ```
