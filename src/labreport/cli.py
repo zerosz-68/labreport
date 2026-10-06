@@ -113,7 +113,30 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _make_output_safe() -> None:
+    """让输出在"非 UTF-8 控制台"上也不会崩。
+
+    英文版 Windows 的控制台/管道默认是 cp1252，直接 print 中文会抛
+    UnicodeEncodeError 把整个命令打断（GitHub Actions 的 windows runner 就是
+    这种情况）。这里分两种：
+      - 输出到管道/文件（非终端）：改用 UTF-8（CI 日志、重定向都正常）；
+      - 输出到终端：保留系统编码，仅把无法编码的字符降级成 "?"（不崩、不换码）。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            if getattr(stream, "isatty", lambda: False)():
+                reconfigure(errors="replace")
+            else:
+                reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def main(argv=None) -> int:
+    _make_output_safe()
     args = build_parser().parse_args(argv)
 
     if args.cmd == "doctor":

@@ -64,7 +64,26 @@ def case(name, argv, expect, contains=None, skip_reason=None):
     return out
 
 
+def _make_output_safe() -> None:
+    """同 CLI：英文版 Windows（cp1252）下 print 中文不崩。
+
+    测试脚本自己也要打印中文小标题，而且它在调用 CLI 之前就会打印。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            if getattr(stream, "isatty", lambda: False)():
+                reconfigure(errors="replace")
+            else:
+                reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def main():
+    _make_output_safe()
     ap = argparse.ArgumentParser()
     ap.add_argument("--docx-dir", default=os.environ.get("LABREPORT_FIXTURES", ""),
                     help="含 原始资料/2 扭摆实验报告.docx 与 成品/…已填写.docx 的目录")

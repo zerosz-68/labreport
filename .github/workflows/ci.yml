@@ -9,6 +9,11 @@ jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
+    env:
+      # 让 Python 的 stdio 一律走 UTF-8：Windows runner 默认是 cp1252，
+      # 打印中文会 UnicodeEncodeError（CLI 侧也已做了容错，这里是双保险）
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     strategy:
       fail-fast: false
       matrix:
