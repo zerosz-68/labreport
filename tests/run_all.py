@@ -123,8 +123,11 @@ def main():
          contains=["可以交付"], skip_reason=None if (tpl and filled) else no_docx)
     case("audit 自检空白模板（应报大量未填）", ["audit", tpl, "--data", os.path.join(FIX, "torsion.json")], 0,
          contains=["数据回读"], skip_reason=None if tpl else no_docx)
-    case("pdf 转 PDF（无转换器时降级 3）", ["pdf", out_filled or tpl, "-o", os.path.join(OUT, "out.pdf")],
-         (0, 3), skip_reason=None if (tpl or out_filled) else no_docx)
+    # 注意：out_filled 是路径字符串（恒为真），必须判断"文件是否真的存在"，
+    # 否则跳过 fill 之后会拿着不存在的文件去跑 pdf，导致失败。
+    pdf_target = out_filled if os.path.isfile(out_filled) else tpl
+    case("pdf 转 PDF（无转换器时降级 3）", ["pdf", pdf_target, "-o", os.path.join(OUT, "out.pdf")],
+         (0, 3), skip_reason=None if pdf_target else no_docx)
 
     print("== 4. 适配页与知识卡 ==")
     case("install-skill --list", ["install-skill", "--list"], 0, contains=["claude", "codex"])
