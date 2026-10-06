@@ -28,7 +28,6 @@ $ labreport audit 成品.docx --source 报告模板.docx --data data.json
 - [文档](#文档)
 - [项目结构](#项目结构)
 - [跨平台与验证](#跨平台与验证)
-- [设计取舍](#设计取舍)
 - [贡献与许可](#贡献与许可)
 
 ---
@@ -113,7 +112,6 @@ python examples/demo.py
 | [命令手册](docs/commands.md) | 9 条命令逐条说明 + 参数 + 退出码 |
 | [数据格式](docs/data-format.md) | `data.json` / `map.json` 全部字段与规则 |
 | [知识卡](docs/cards.md) | 怎么为新实验写卡、内置卡有哪些 |
-| [设计取舍](docs/design.md) | 为什么是"CLI 内核 + 薄 skill"，而不是再来一个胖 skill |
 | [常见问题](docs/faq.md) | 编码、合并单元格、公式、Word/LibreOffice、隐私、CI |
 | [回归测试](tests/README.md) | 用例覆盖与如何本地跑全量 |
 
@@ -144,18 +142,6 @@ labreport/
 | Windows 11 + Python 3.12 + Word + 真实实验文件 | 全量 24 个用例（含 fill / audit / pdf→PNG 目检） | **24/24 通过** |
 
 细节与仍未被 CI 覆盖的点（macOS/Linux 上 `pdf` 的真实转换、中文字体）见 [常见问题](docs/faq.md#跨平台)。
-
-## 设计取舍
-
-**CLI 负责确定性硬活，skill 负责让 agent 知道何时调用，知识卡负责实验特异性。**
-
-| 代 | 形态 | 弱点 |
-|---|---|---|
-| 1 代 | 胖 skill，依赖别的 skill | 换环境缺零件 |
-| 2 代 | 胖 skill，自带脚本 | 依赖靠人装、路径靠工具解析、流程靠模型自觉 |
-| **3 代** | **CLI 内核 + 薄 skill + 知识卡（本项目）** | 前期要多写代码 |
-
-展开阅读：[设计取舍](docs/design.md)。
 
 ## 贡献与许可
 
