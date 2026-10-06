@@ -213,6 +213,42 @@ def _ensure_cell_ends_with_paragraph(tc) -> None:
         tc.append(OxmlElement("w:p"))
 
 
+def fit_row_height(tbl, row_idx: int) -> None:
+    """把某一行的最小行高改为"随内容自适应"。
+
+    只改**尺寸**：不动边框、字体、合并、样式。用于模板给正文大格设了
+    "最小行高≈整页"（hRule=atLeast）的情况——内容填不满就会留下大片空白页。
+    """
+    trs = tbl.findall(W + "tr")
+    if not (1 <= row_idx <= len(trs)):
+        raise ValueError(f"表里没有第 {row_idx} 行（共 {len(trs)} 行）")
+    tr = trs[row_idx - 1]
+    trPr = tr.find(W + "trPr")
+    if trPr is None:
+        trPr = OxmlElement("w:trPr")
+        tr.insert(0, trPr)
+    for old in trPr.findall(W + "trHeight"):
+        trPr.remove(old)
+    th = OxmlElement("w:trHeight")
+    th.set(qn("w:val"), "0")
+    th.set(qn("w:hRule"), "auto")
+    trPr.append(th)
+
+
+def parse_rows(text: str) -> list:
+    """解析 "2:5,2:6" 形式的（表:行）列表，1 起。"""
+    out = []
+    for part in str(text).replace("，", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        bits = part.replace(":", "-").replace("：", "-").split("-")
+        if len(bits) != 2 or not all(b.strip().isdigit() for b in bits):
+            raise ValueError(f'--fit-rows 需要“表:行”，如 "2:5,2:6"；无法解析 {part!r}')
+        out.append((int(bits[0]), int(bits[1])))
+    return out
+
+
 def _norm_cell_text(text) -> str:
     """单元格文字规范化：折叠多余空白/制表符/换行，避免表格里出现空行与错位。"""
     if text is None:
@@ -303,6 +339,38 @@ def insert_table_spec(tc, spec: dict, doc, values: dict) -> dict:
 
     _squash_empty_paragraphs(tbl)   # 清掉合并堆积的空段落（否则格子被撑高）
     tbl.autofit = True
+
+    # colWidths：按百分比指定各列宽度（只改尺寸，不动格式）
+    widths = spec.get("colWidths")
+    if widths:
+        try:
+            sec = doc.sections[-1]
+            avail = int(sec.page_width - sec.left_margin - sec.right_margin)
+        except Exception:  # noqa: BLE001
+            avail = 0
+        if avail:
+            total = sum(float(w) for w in widths) or 100.0
+            tbl.autofit = False
+            from docx.shared import Emu
+
+            # 必须同时把表格布局设为 fixed，否则 Word 会按内容重新分配列宽，
+            # 显式设置的列宽会被忽略
+            pr = tbl._tbl.tblPr
+            for old in pr.findall(W + "tblLayout"):
+                pr.remove(old)
+            layout = OxmlElement("w:tblLayout")
+            layout.set(qn("w:type"), "fixed")
+            pr.append(layout)
+            for i, pct in enumerate(widths[:cols]):
+                tbl.columns[i].width = Emu(int(avail * float(pct) / total))
+            # 单元格自带的 tcW 会盖过网格宽度（fixed 布局下 Word 优先用 tcW），
+            # 去掉它们，让 tblGrid 决定各列宽度
+            for tc_el in tbl._tbl.iter(W + "tc"):
+                tc_pr = tc_el.find(W + "tcPr")
+                if tc_pr is None:
+                    continue
+                for old in tc_pr.findall(W + "tcW"):
+                    tc_pr.remove(old)
     _force_full_width(tbl)
     _force_borders(tbl)
     tc.append(tbl._tbl)
@@ -507,8 +575,27 @@ def run(args) -> int:
         if errors:
             print(f"\n有 {errors} 处定位/取值失败，未写出文件。请先修映射或数据。")
             return 1
+        fitted = []
+        if getattr(args, "fit_rows", None):
+            try:
+                pairs = parse_rows(args.fit_rows)
+            except ValueError as exc:
+                print(str(exc))
+                return 1
+            for t_idx, r_idx in pairs:
+                if not (1 <= t_idx <= len(tables)):
+                    print(f"模板没有第 {t_idx} 张表")
+                    return 1
+                try:
+                    fit_row_height(tables[t_idx - 1], r_idx)
+                except ValueError as exc:
+                    print(str(exc))
+                    return 1
+                fitted.append(f"表{t_idx}第{r_idx}行")
         doc.save(out_path)
         print(f"\n已写出：{out_path}")
+        if fitted:
+            print(f"       行高改为随内容自适应（只改尺寸，不动格式）：{'、'.join(fitted)}")
         print("提示：接着跑 `labreport inspect` 或 `labreport audit` 检查填充结果。")
     else:
         print("\n（未写文件）确认无误后加 --apply 落地；全自动场景用 --auto。")

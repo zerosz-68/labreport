@@ -86,6 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--tables", help="把 `labreport tables` 提取出的表格 JSON 嵌入正文（配合 --into）"
     )
     p_fill.add_argument("--into", help='嵌入位置 "表,行,列"（1 起，物理网格坐标），如 "2,6,1"')
+    p_fill.add_argument(
+        "--fit-rows",
+        help='把指定行的最小行高改为自适应（只改尺寸，不动边框/字体/合并），如 "2:5,2:6"',
+    )
 
     p_att = sub.add_parser(
         "attach", help="在报告末尾追加附件（标签一行 + 每页一张满宽图片）"
