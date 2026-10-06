@@ -1,5 +1,9 @@
 # labreport
 
+[![CI](https://github.com/zerosz-68/labreport/actions/workflows/ci.yml/badge.svg)](https://github.com/zerosz-68/labreport/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://github.com/zerosz-68/labreport)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 通用实验报告 CLI。目标：**任何 agent、任何系统、任何实验**都能用同一套流程填报告。
 
 ## 为什么是 CLI 而不是"胖 skill"
@@ -97,11 +101,18 @@ python tests/run_all.py --docx-dir <目录> --frags-dir <目录>   # 全量
 ```
 最近一次（Windows 11 + Python 3.12 + Word COM）：**24 通过 / 0 失败 / 0 跳过**，详见 [tests/README.md](tests/README.md)。
 
-## 跨平台说明（重要，别把没验过的说成验过）
+## 跨平台说明
 
-- **代码是跨平台写的**：路径用 `os.path`/`expanduser`、程序探测用 `shutil.which`、平台差异用 `sys.platform` 分支；
-- **实测只在 Windows 11 上做全**（本机环境）；macOS / Linux **未实测**，已知风险点两处：
-  1. `pdf` 走 `soffice --headless`（Word COM 仅 Windows）；
-  2. 中文字体：macOS/Linux 需装 Noto Sans CJK / Source Han Sans，否则 PDF 与图表中文可能缺字（`doctor` 会提示）。
-- 打包（`pip install -e .`）在开发用的内置 Python 上未能验证（该发行版没有 setuptools/pip 引导）；
-  正常 Python 环境按文首的安装命令即可。`run.py` 是零安装兜底入口。
+**已实测（CI 证据在 Actions 页，每次推送自动跑）**
+
+| 环境 | 覆盖 | 结果 |
+|---|---|---|
+| GitHub Actions · ubuntu / macos / windows × Python 3.9 / 3.12 | 安装 + 15 个不需要真实 docx 的用例 + 命令冒烟 | **6/6 全绿** |
+| Windows 11 + Python 3.12 + Word + 真实实验文件 | 全量 24 个用例（含 fill / audit / pdf→PNG 目检） | **24/24 通过** |
+
+- 代码是跨平台写的：路径用 `os.path`/`expanduser`、程序探测用 `shutil.which`、平台差异用 `sys.platform` 分支；
+- **非 UTF-8 控制台**（英文版 Windows 的 cp1252）也不会崩：`cli.py` 启动时把管道输出切成 UTF-8，终端输出保留原编码但把不可编码字符降级为 `?`（这是从 CI 的 Windows 作业里抓出来的真实 bug，已修）；
+- 两点平台差异仍需注意：
+  1. `pdf`：Windows 走 Word COM，macOS / Linux 走 `soffice --headless`（CI 只验证"没有转换器时优雅降级为退出码 3"，**真实转换未在 macOS/Linux 上验证**）；
+  2. 中文字体：macOS / Linux 建议装 Noto Sans CJK / Source Han Sans，否则 PDF 与图表中文可能缺字（`doctor` 会提示）。
+- 打包：CI 里 `pip install -e .` 在三个系统都能装（含 Python 3.9）；开发用的内置 Python 因缺 setuptools 无法本地验证，故提供 `run.py` 零安装入口。
