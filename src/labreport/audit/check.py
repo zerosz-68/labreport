@@ -103,7 +103,80 @@ def structure(path: str) -> dict:
     }
 
 
-def audit(target: str, source: str | None, data: dict | None, tol: float = 0.002) -> dict:
+def _variants(item: str) -> list:
+    """提纲条目的宽容匹配形式（成品里可能省掉“实验”二字）。"""
+    outs = [item]
+    if item.startswith("实验") and len(item) > 2:
+        outs.append(item[2:])
+    outs.append(item.replace("实验", ""))
+    return [x for x in dict.fromkeys(outs) if len(x) >= 2]
+
+
+def _outline_items(source: str) -> list:
+    """从模板里读出“实验报告应包括以下内容：…”这段提纲，逐条返回。
+
+    这就是需求里说的“内容的目录在实验报告（未填写的）”——与其让使用者手抄一份
+    章节清单，不如直接从模板里读，成品逐项核对。
+    """
+    doc = Document(source)
+    for tbl in [ch for ch in doc.element.body if ch.tag == W + "tbl"]:
+        for tc in tbl.iter(W + "tc"):
+            paras = [
+                "".join(t.text or "" for t in p.iter(W + "t")).strip()
+                for p in tc.findall(W + "p")
+            ]
+            idx = next((i for i, s in enumerate(paras) if "应包括以下内容" in s), None)
+            if idx is None:
+                continue
+            items = []
+            head = paras[idx].split("：", 1)
+            if len(head) == 2 and head[1].strip():
+                items.append(head[1].strip())
+            items += [s for s in paras[idx + 1:] if s]
+            clean = []
+            for s in items:
+                s = re.sub(r"^[\s\d一二三四五六七八九十]+[.、)）]?\s*", "", s).strip()
+                if s and not s.endswith("：") and s not in clean:
+                    clean.append(s)
+            if clean:
+                return clean
+    return []
+
+
+def _search_text(doc) -> str:
+    """正文全文，但**跳过"实验报告应包括以下内容"那个单元格**。
+
+    否则提纲本身（实验目的、实验基本原理…）会被当成"章节已经写了"，造成假通过。
+
+    注意：不能先收集节点再用 id() 判断——lxml 的代理对象是临时创建的，
+    两次遍历拿到的 id 不同，必须一边遍历一边跳过整棵子树。
+    """
+    parts = []
+
+    def walk(el, skip: bool) -> None:
+        for child in el:
+            if child.tag == W + "tc":
+                text = "".join(t.text or "" for t in child.iter(W + "t"))
+                walk(child, skip or ("应包括以下内容" in text))
+            elif child.tag == W + "t":
+                if not skip:
+                    parts.append(child.text or "")
+            else:
+                walk(child, skip)
+
+    walk(doc.element.body, False)
+    return "".join(parts)
+
+
+def audit(
+    target: str,
+    source: str | None,
+    data: dict | None,
+    tol: float = 0.002,
+    outline: bool = True,
+    require_attachment: bool = False,
+    attachment_label: str = "附件",
+) -> dict:
     doc = Document(target)
     issues = []
     report = {"target": os.path.abspath(target), "source": os.path.abspath(source) if source else ""}
@@ -247,6 +320,52 @@ def audit(target: str, source: str | None, data: dict | None, tol: float = 0.002
                 }
             )
 
+    # ---------- 5. 按模板提纲核对章节
+    if outline and source and os.path.isfile(source):
+        items = _outline_items(source)
+        if items:
+            body_text = _search_text(doc)
+            missing_items = [
+                it for it in items if not any(v in body_text for v in _variants(it))
+            ]
+            report["outline"] = {"items": items, "missing": missing_items}
+            if missing_items:
+                issues.append(
+                    {
+                        "level": "error",
+                        "where": "章节",
+                        "message": f"模板提纲 {len(items)} 项，成品缺 {len(missing_items)} 项：{missing_items}",
+                    }
+                )
+    elif outline:
+        report["outline"] = {"items": [], "missing": [], "note": "未提供 --source，跳过提纲核对"}
+
+    # ---------- 6. 文末附件（如课堂报告书原件）
+    body = doc.element.body
+    label_idx = None
+    for i, ch in enumerate(body):
+        if ch.tag == W + "p" and attachment_label and attachment_label in "".join(
+            t.text or "" for t in ch.iter(W + "t")
+        ):
+            label_idx = i
+    images_after = 0
+    if label_idx is not None:
+        for ch in list(body)[label_idx:]:
+            images_after += len(list(ch.iter(W + "drawing"))) + len(list(ch.iter(W + "pict")))
+    report["attachment"] = {
+        "label": attachment_label,
+        "foundLabel": label_idx is not None,
+        "imagesAfter": images_after,
+    }
+    if require_attachment and (label_idx is None or images_after == 0):
+        issues.append(
+            {
+                "level": "error",
+                "where": "附件",
+                "message": f"文末没有附件（需要一行「{attachment_label}」+ 至少 1 张图片）",
+            }
+        )
+
     errors = [i for i in issues if i["level"] == "error"]
     warns = [i for i in issues if i["level"] == "warn"]
     report["issues"] = issues
@@ -280,6 +399,22 @@ def render(r: dict) -> str:
         out.append(f"数据回读  : {rb['found']}/{rb['total']} 命中")
         for m in rb["missing"]:
             out.append(f"    ✗ {m['name']} = {m['value']:.6g}")
+    if r.get("outline", {}).get("items"):
+        ol = r["outline"]
+        out.append(
+            f"章节提纲  : {len(ol['items']) - len(ol['missing'])}/{len(ol['items'])} 项齐备"
+            + (f"    缺: {ol['missing']}" if ol["missing"] else "")
+        )
+    att = r.get("attachment")
+    if att:
+        out.append(
+            "文末附件  : "
+            + (
+                f"找到「{att['label']}」，其后 {att['imagesAfter']} 张图片"
+                if att["foundLabel"]
+                else "未找到附件标签"
+            )
+        )
     out.append("")
     if r["issues"]:
         order = {"error": 0, "warn": 1}
@@ -311,7 +446,15 @@ def run(args) -> int:
         print(f"找不到对照模板：{source}")
         return 1
 
-    r = audit(args.target, source, data, tol=float(getattr(args, "tolerance", 0.002)))
+    r = audit(
+        args.target,
+        source,
+        data,
+        tol=float(getattr(args, "tolerance", 0.002)),
+        outline=not getattr(args, "skip_outline", False),
+        require_attachment=bool(getattr(args, "require_attachment", False)),
+        attachment_label=getattr(args, "attachment_label", "附件") or "附件",
+    )
     if getattr(args, "json", False):
         print(json.dumps(r, ensure_ascii=False, indent=2, default=str))
     else:

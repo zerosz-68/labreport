@@ -39,6 +39,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--formula-sample", type=int, default=8, help="展示前 N 条公式文本（默认 8）"
     )
 
+    p_tbl = sub.add_parser(
+        "tables", help="从一份 docx 提取表格（含合并关系）→ 可直接嵌入报告的 JSON"
+    )
+    p_tbl.add_argument("source", help="源 .docx（如课堂报告书）")
+    p_tbl.add_argument("-o", "--out", help="输出表格规格 JSON（不给则只打印摘要）")
+    p_tbl.add_argument("--json", action="store_true", help="以 JSON 打印到标准输出")
+    p_tbl.add_argument(
+        "--keep-title-row", action="store_true", help="保留表格首行的表名（默认把它提为表名）"
+    )
+    p_tbl.add_argument("--keep-empty", action="store_true", help="保留无数据的空表")
+
     p_om = sub.add_parser(
         "omml", help="LaTeX → Word 原生公式（OMML）：内置转换，不依赖 pandoc"
     )
@@ -71,6 +82,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_fill.add_argument("--apply", action="store_true", help="真正写文件（默认只出计划供确认）")
     p_fill.add_argument("--auto", action="store_true", help="全自动：等同于 --apply")
     p_fill.add_argument("--plan", help="把填写计划另存为 JSON")
+    p_fill.add_argument(
+        "--tables", help="把 `labreport tables` 提取出的表格 JSON 嵌入正文（配合 --into）"
+    )
+    p_fill.add_argument("--into", help='嵌入位置 "表,行,列"（1 起，物理网格坐标），如 "2,6,1"')
+
+    p_att = sub.add_parser(
+        "attach", help="在报告末尾追加附件（标签一行 + 每页一张满宽图片）"
+    )
+    p_att.add_argument("docx", help="待追加的 .docx（通常是填好的成品）")
+    p_att.add_argument("images", nargs="+", help="附件图片，按顺序（如课堂报告书第 1、2 页）")
+    p_att.add_argument("--label", default="附件", help='标签行文字（默认"附件"，给空串则不加）')
+    p_att.add_argument("-o", "--out", help="输出文件（默认 <原名>-含附件.docx）")
+    p_att.add_argument("--no-page-break", action="store_true", help="图片之间不插入分页符")
+    p_att.add_argument("--apply", action="store_true", help="真正写文件（默认只出计划）")
+    p_att.add_argument("--auto", action="store_true", help="全自动：等同于 --apply")
 
     p_audit = sub.add_parser(
         "audit", help="成品自检：结构 / 公式 / 占位 / 数据回读（交付前最后一道关）"
@@ -79,6 +105,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--source", help="对照模板 .docx（检查结构有没有被破坏）")
     p_audit.add_argument("--data", help="data.json（逐项回读数据是否填全）")
     p_audit.add_argument("--tolerance", default=0.002, help="数值命中的相对容差，默认 0.002")
+    p_audit.add_argument(
+        "--require-attachment", action="store_true", help="要求文末必须有附件（标签 + 图片）"
+    )
+    p_audit.add_argument("--attachment-label", default="附件", help='附件标签文字（默认"附件"）')
+    p_audit.add_argument("--skip-outline", action="store_true", help="跳过“按模板提纲核对章节”")
     p_audit.add_argument("--json", action="store_true", help="以 JSON 输出")
 
     p_pdf = sub.add_parser(
@@ -147,6 +178,14 @@ def main(argv=None) -> int:
         from .docx.inspect import run as run_inspect
 
         return run_inspect(args)
+    if args.cmd == "tables":
+        from .docx.tables import run as run_tables
+
+        return run_tables(args)
+    if args.cmd == "attach":
+        from .docx.attach import run as run_attach
+
+        return run_attach(args)
     if args.cmd == "omml":
         from .omml.latex import run as run_omml
 

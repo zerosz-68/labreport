@@ -106,8 +106,27 @@ labreport card new 用单摆测重力加速度     # 建卡
 labreport card list                       # 看有哪些卡
 ```
 
+## 6. 在 agent 里使用（推荐方式）
+
+`labreport` 本来就是给 agent 用的：你只要说清"模板在哪、数据（照片）在哪"，剩下由 agent 按适配页的流程调用 CLI。
+
+```bash
+labreport install-skill --for claude     # Claude Code / 桌面
+labreport install-skill --for dsh        # DeepSeek Harness
+labreport install-skill --for codex      # Codex CLI（写入 AGENTS.md 的标记块）
+labreport install-skill --for cursor     # Cursor（项目规则 .mdc）
+```
+
+装完**新开一个会话**，然后直接说：
+
+> 用 labreport 把实验报告填好：模板是 `报告模板.docx`，手写数据在 `照片/` 里。
+
+agent 会自己走完 `doctor → card → inspect → 读照片写 data.json → data check → 填写计划（等你确认）→ fill → audit → pdf --pages`。
+**默认会在填写前停下来给你看计划**；想全自动就说"全自动"，它用 `--auto`。
+
+细节（各 agent 落点、如何验证装好、常见问题）见 [在 agent 里使用](agent-usage.md)。
+
 ## 下一步
 
 - 想理解每一步在干什么 → [标准工作流](workflow.md)
-- 要在 agent 里用 → [README 的安装适配页一节](../README.md#命令一览)：`labreport install-skill --for claude`
 - 报错了 → [常见问题](faq.md)

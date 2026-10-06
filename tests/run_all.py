@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -80,6 +81,58 @@ def _make_output_safe() -> None:
                 reconfigure(encoding="utf-8", errors="replace")
         except Exception:  # noqa: BLE001
             pass
+
+
+def _make_generated_fixtures(tpl: str, src: str, png: str, mapping_path: str, tables_json: str) -> None:
+    """现场生成最小样例：模板（含提纲与正文大格）+ 课堂报告书（含合并表）+ 附件图 + 映射。
+
+    这样这组用例**不依赖任何真实实验文件**，CI 与别人克隆后都能跑。
+    """
+    from docx import Document
+    from PIL import Image
+
+    doc = Document()
+    t1 = doc.add_table(rows=2, cols=3)
+    t1.style = "Table Grid"
+    t1.cell(0, 0).text = "实验名称"
+    t1.cell(0, 2).text = "成绩"
+
+    t2 = doc.add_table(rows=3, cols=4)
+    t2.style = "Table Grid"
+    outline = t2.cell(0, 0).merge(t2.cell(0, 3))
+    outline.text = "实验报告应包括以下内容："
+    for line in ("一、实验目的", "二、实验基本原理", "三、仪器及设备"):
+        outline.add_paragraph(line)
+    t2.cell(1, 0).merge(t2.cell(1, 3))
+    t2.cell(2, 0).merge(t2.cell(2, 3))
+    doc.save(tpl)
+
+    src_doc = Document()
+    st = src_doc.add_table(rows=4, cols=3)
+    st.style = "Table Grid"
+    st.cell(0, 0).merge(st.cell(0, 2)).text = "1.质量与尺寸的测量"
+    for c, text in enumerate(("试样", "质量m（g）", "尺寸D（mm）")):
+        st.cell(1, c).text = text
+    st.cell(2, 0).text = "圆柱"
+    st.cell(2, 1).merge(st.cell(3, 1)).text = "100.00"
+    st.cell(2, 2).text = "50.00"
+    src_doc.save(src)
+
+    Image.new("RGB", (600, 900), "white").save(png)
+
+    mapping = {
+        "_说明": "自生成样例的填写映射",
+        "targets": [
+            {"table": 1, "row": 1, "col": 2, "set": "生成样例实验"},
+            {"table": 2, "row": 2, "col": 1, "append": "一、实验目的"},
+            {"table": 2, "row": 2, "col": 1, "append": "二、实验基本原理"},
+            {"table": 2, "row": 2, "col": 1, "append": "三、仪器及设备"},
+            {"table": 2, "row": 3, "col": 1, "append": "四、实验数据记录"},
+            {"table": 2, "row": 3, "col": 1, "insert_tables_file": os.path.basename(tables_json)},
+        ],
+    }
+    with open(mapping_path, "w", encoding="utf-8") as fh:
+        json.dump(mapping, fh, ensure_ascii=False, indent=1)
 
 
 def main():
@@ -159,6 +212,28 @@ def main():
     os.environ["LABREPORT_CARD_DIR"] = carddir
     case("card new（自建卡）", ["card", "new", "回归测试卡"], 0, contains=["已从模板创建"])
     case("card new 重复应拒绝", ["card", "new", "回归测试卡"], 1, contains=["已存在"])
+
+    print("== 5. 表格嵌入 / 文末附件 / 提纲核对（自生成样例，不依赖真实文件）==")
+    gen_tpl = os.path.join(OUT, "gen_模板.docx")
+    gen_src = os.path.join(OUT, "gen_课堂报告书.docx")
+    gen_png = os.path.join(OUT, "gen_附件.png")
+    gen_tables = os.path.join(OUT, "gen_tables.json")
+    gen_map = os.path.join(OUT, "gen_map.json")
+    gen_out = os.path.join(OUT, "gen_成品.docx")
+    _make_generated_fixtures(gen_tpl, gen_src, gen_png, gen_map, gen_tables)
+    case("tables 提取表格（表名提上来 + 保留合并）", ["tables", gen_src, "-o", gen_tables], 0,
+         contains=["提取到", "合并"])
+    case("fill 内联表格文件（insert_tables_file）", ["fill", gen_tpl, "--map", gen_map, "--apply", "-o", gen_out], 0,
+         contains=["嵌入表格"])
+    out = case("attach 追加文末附件", ["attach", gen_out, gen_png, "--apply", "-o", gen_out], 0,
+               contains=["附件", "满宽"])
+    case("inspect 确认附件图片已加入", ["inspect", gen_out], 0, contains=["图片"])
+    case("audit 正例（提纲齐备 + 附件在文末）",
+         ["audit", gen_out, "--source", gen_tpl, "--require-attachment"], 0,
+         contains=["章节提纲", "文末附件", "可以交付"])
+    case("audit 反例（空白模板：缺章节、无附件）",
+         ["audit", gen_tpl, "--source", gen_tpl, "--require-attachment"], 1,
+         contains=["缺", "附件"])
 
     print("\n================ 汇总 ================")
     print(f"通过 {len(PASS)} | 失败 {len(FAIL)} | 跳过 {len(SKIP)}")

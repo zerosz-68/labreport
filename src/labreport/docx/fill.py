@@ -18,6 +18,7 @@ import re
 
 from docx import Document
 from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import qn
 
 from ..data.check import check as check_data
 from ..omml.latex import latex_to_omml
@@ -177,8 +178,152 @@ def write_formula(tc, latex: str, append: bool = False) -> None:
     p.append(om)
 
 
+# ---------------------------------------------------------------- 嵌入表格
+def _force_full_width(tbl) -> None:
+    """表格宽度撑满所在单元格（100%）。"""
+    pr = tbl._tbl.tblPr
+    for el in pr.findall(W + "tblW"):
+        pr.remove(el)
+    el = OxmlElement("w:tblW")
+    el.set(qn("w:type"), "pct")
+    el.set(qn("w:w"), "5000")
+    pr.append(el)
+
+
+def _force_borders(tbl) -> None:
+    """显式给单线边框：不依赖模板里是否存在 Table Grid 样式。"""
+    pr = tbl._tbl.tblPr
+    for old in pr.findall(W + "tblBorders"):
+        pr.remove(old)
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        e = OxmlElement(f"w:{edge}")
+        e.set(qn("w:val"), "single")
+        e.set(qn("w:sz"), "4")
+        e.set(qn("w:space"), "0")
+        e.set(qn("w:color"), "auto")
+        borders.append(e)
+    pr.append(borders)
+
+
+def _ensure_cell_ends_with_paragraph(tc) -> None:
+    """OOXML 要求单元格以段落结尾，否则 Word 会提示修复文档。"""
+    kids = list(tc)
+    if not kids or kids[-1].tag != W + "p":
+        tc.append(OxmlElement("w:p"))
+
+
+def insert_table_spec(tc, spec: dict, doc, values: dict) -> dict:
+    """在单元格末尾插入「表名一行 + 一张（可含合并的）表格」。
+
+    spec 格式见 docx/tables.py：{name, cols, grid, merges}。
+    """
+    cols = int(spec.get("cols") or 0)
+    grid = spec.get("grid") or []
+    if cols <= 0:
+        raise ValueError("insert_table 需要 cols（网格列数）")
+    if not grid:
+        raise ValueError("insert_table 需要 grid（每行单元格文字）")
+
+    name = spec.get("name") or ""
+    if name:
+        append_cell_text(tc, render_tpl(str(name), values))
+
+    rows = len(grid)
+    tbl = doc.add_table(rows=rows, cols=cols)  # 先建在文档尾部，稍后整体搬进单元格
+    style = spec.get("style") or "Table Grid"
+    try:
+        tbl.style = style
+    except Exception:  # noqa: BLE001  模板里没有该样式时忽略，边框由 _force_borders 保证
+        pass
+
+    for r, row in enumerate(grid):
+        cells = list(row) + [""] * max(0, cols - len(row))
+        for c in range(cols):
+            raw = cells[c]
+            tbl.cell(r, c).text = render_tpl("" if raw is None else str(raw), values)
+
+    # spec.formulas：{"行,列": "LaTeX"} —— 把这些格子写成 Word 原生公式
+    # （原表里往往是"J₁=1/8mD²"这样的文字，要求公式格式正确时用它替换）
+    # 必须放在合并**之后**：先合并时锚点格的内容会被重建，先写的公式会丢。
+    for item in spec.get("merges") or []:
+        vals = list(item) + [1, 1]
+        r0, c0 = int(vals[0]) - 1, int(vals[1]) - 1
+        rowspan, colspan = int(vals[2] or 1), int(vals[3] or 1)
+        r1, c1 = r0 + rowspan - 1, c0 + colspan - 1
+        if not (0 <= r0 <= r1 < rows and 0 <= c0 <= c1 < cols):
+            raise ValueError(f"合并范围越界：{item}（该表 {rows} 行 × {cols} 列）")
+        # 先赋文字再合并，可以保证合并后留下的是锚点格的文字
+        a, b = tbl.cell(r0, c0), tbl.cell(r1, c1)
+        if a._tc is not b._tc:
+            a.merge(b)
+
+    # spec.formulas：{"行,列": "LaTeX"} —— 把这些格子写成 Word 原生公式
+    # （原表里往往是"J₁=1/8mD²"这样的文字，要求公式格式正确时用它替换）
+    # 注意必须放在合并**之后**：合并会重建锚点格的内容，先写的公式会丢。
+    for pos, latex in (spec.get("formulas") or {}).items():
+        fr, fc = (int(x) - 1 for x in str(pos).replace("，", ",").split(","))
+        if not (0 <= fr < rows and 0 <= fc < cols):
+            raise ValueError(f"formulas 坐标越界：{pos}（该表 {rows} 行 × {cols} 列）")
+        write_formula(
+            tbl.cell(fr, fc)._tc, render_tpl(str(latex), values), append=False
+        )
+
+    tbl.autofit = True
+    _force_full_width(tbl)
+    _force_borders(tbl)
+    tc.append(tbl._tbl)
+    _ensure_cell_ends_with_paragraph(tc)
+    return {"rows": rows, "cols": cols, "merges": len(spec.get("merges") or [])}
+
+
+def load_table_specs(path: str) -> list:
+    """读 `labreport tables` 产出的 JSON（也接受裸数组）。"""
+    with open(path, encoding="utf-8") as fh:
+        payload = json.load(fh)
+    specs = payload if isinstance(payload, list) else (payload.get("tables") or [])
+    for s in specs:
+        s.pop("_源表序号", None)
+    return specs
+
+
+def _expand_tables(targets: list, base_dir: str) -> list:
+    """把 `insert_tables_file` 就地展开成连续的 insert_table 动作。
+
+    这样表格能插在 map 里指定的**位置**（例如"第五节标题之后、第六节之前"），
+    而不是像 `--tables` 那样只能追加到末尾。
+    """
+    out = []
+    for t in targets:
+        ref = t.get("insert_tables_file")
+        if not ref:
+            out.append(t)
+            continue
+        path = ref if os.path.isabs(ref) else os.path.join(base_dir, ref)
+        for spec in load_table_specs(path):
+            out.append(
+                {
+                    "table": t.get("table"),
+                    "row": t.get("row"),
+                    "col": t.get("col"),
+                    "insert_table": spec,
+                }
+            )
+    return out
+
+
+def parse_into(text: str) -> tuple:
+    """解析 --into "表,行,列"（1 起，物理网格坐标）。"""
+    parts = [p.strip() for p in str(text).replace("，", ",").split(",")]
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        raise ValueError('--into 需要“表,行,列”三个数字，例如 --into "2,6,1"')
+    return tuple(int(p) for p in parts)
+
+
 # ---------------------------------------------------------------- 主流程
 def _action_of(target: dict):
+    if "insert_table" in target:
+        return "table"
     if "formula" in target:
         return "formula"
     if "set" in target:
@@ -187,7 +332,7 @@ def _action_of(target: dict):
         return "append"
     if "clear" in target:
         return "clear"
-    raise ValueError("target 必须含 set / append / clear / formula 之一")
+    raise ValueError("target 必须含 set / append / clear / formula / insert_table 之一")
 
 
 def _cell_text(tc) -> str:
@@ -207,9 +352,31 @@ def run(args) -> int:
 
     with open(args.map, encoding="utf-8") as fh:
         mapping = json.load(fh)
-    targets = mapping.get("targets") or []
+    targets = _expand_tables(
+        list(mapping.get("targets") or []), os.path.dirname(os.path.abspath(args.map))
+    )
+
+    # --tables：把「从课堂报告书提取出来的表格」按顺序一次性嵌入某个单元格
+    # （表名 + 表格由 insert_table_spec 负责，仍是"先出计划、确认后落地"）
+    if getattr(args, "tables", None):
+        if not os.path.isfile(args.tables):
+            print(f"找不到表格规格文件：{args.tables}")
+            return 1
+        try:
+            into = parse_into(getattr(args, "into", "") or "")
+        except ValueError as exc:
+            print(str(exc))
+            return 1
+        specs = load_table_specs(args.tables)
+        if not specs:
+            print(f"表格规格文件里没有表格：{args.tables}")
+            return 1
+        targets += [
+            {"table": into[0], "row": into[1], "col": into[2], "insert_table": s} for s in specs
+        ]
+
     if not targets:
-        print("映射文件里没有 targets")
+        print("映射文件里没有 targets（也没有用 --tables 提供表格）")
         return 1
 
     data = None
@@ -257,6 +424,16 @@ def run(args) -> int:
                 entry["after"] = ("公式 " + latex)[:140]
                 if apply_mode(args):
                     write_formula(tc, latex, append=bool(target.get("append")))
+            elif action == "table":
+                spec = dict(target["insert_table"])
+                spec["name"] = render_tpl(str(spec.get("name") or ""), values)
+                entry["after"] = (
+                    f"嵌入表格：{spec['name']}"
+                    f"（{len(spec.get('grid') or [])} 行 × {int(spec.get('cols') or 0)} 列，"
+                    f"合并 {len(spec.get('merges') or [])} 处）"
+                )[:140]
+                if apply_mode(args):
+                    insert_table_spec(tc, spec, doc, values)
         except Exception as exc:  # noqa: BLE001
             entry["status"] = "error"
             entry["after"] = str(exc)

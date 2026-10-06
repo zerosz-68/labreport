@@ -22,6 +22,7 @@ $ labreport audit 成品.docx --source 报告模板.docx --data data.json
 
 - [它解决什么问题](#它解决什么问题)
 - [60 秒上手](#60-秒上手)
+- [在 agent 里使用](#在-agent-里使用)
 - [工作流](#工作流)
 - [命令一览](#命令一览)
 - [三个核心概念](#三个核心概念)
@@ -64,7 +65,48 @@ python examples/demo.py
 
 它会造一份带合并单元格的模板，依次跑 `inspect → data check → fill → audit`，并打印每一步的关键输出。
 
+## 在 agent 里使用
+
+**这才是推荐用法。** `labreport` 是给 agent 的工具层：agent 看照片、判断、跟你确认，确定性操作全部交给 CLI。
+装一页适配说明，agent 就知道**何时**调用 `labreport`、**怎么**调用：
+
+```bash
+labreport install-skill --for claude     # 或 dsh / codex / cursor
+```
+
+| `--for` | agent | 落点 |
+|---|---|---|
+| `claude` | Claude Code / Claude 桌面 | `~/.claude/skills/labreport/SKILL.md` |
+| `dsh` | DeepSeek Harness | `$DSH_HOME/skills/labreport/SKILL.md` |
+| `codex` | Codex CLI | `~/.codex/AGENTS.md`（标记块，不覆盖你已有的内容） |
+| `cursor` | Cursor | `.cursor/rules/labreport.mdc` |
+
+装完**新开一个会话**，然后直接对 agent 说：
+
+> 用 labreport 把实验报告填好：模板是 `报告模板.docx`，手写数据在 `照片/` 里。
+
+agent 会按适配页里的流程自己走：
+
+```
+doctor → card（查实验知识卡）→ inspect（看清合并单元格）
+      → 读照片写成 data.json → data check（有 error 就回看照片）
+      → 给你看填写计划 → 你确认后落地 → audit → pdf --pages 出图复核
+```
+
+**人在环上**：`fill` 默认只出计划、不写文件，你说"可以"才落地；想全自动就说"全自动"，agent 会用 `--auto`。
+
+```bash
+labreport install-skill --list                 # 看四种 agent 的落点
+labreport install-skill --for dsh --dry-run     # 只显示要写哪里、不落盘
+labreport install-skill --for cursor --print    # 打印全文，自己粘到任意 agent
+```
+
+各 agent 的差异、怎么验证装好了、常见问题见 [在 agent 里使用](docs/agent-usage.md)。
+
 ## 工作流
+
+**输入三份材料**：① 实验报告（**未填写**，章节提纲以它为准）② 课堂报告书（**数据来源** + **文末附件**的原件）③ 实验内容设计（教材/讲义，正文依据）。
+产出：填好的报告（公式全部是 Word 原生公式、数据表以**嵌入表**搬进第五节、课堂报告书原件附在文末）+ PDF。
 
 ```
 手写记录照片 ──agent 视觉──▶ data.json ──data check──▶ 校验通过（0 error）
@@ -85,10 +127,12 @@ python examples/demo.py
 |---|---|
 | `doctor` | 环境体检（核心依赖 / 可选程序 / 中文字体） |
 | `inspect <模板.docx>` | 读结构：段落、**表格物理网格**、合并单元格、嵌套表、公式、图片、占位 |
+| `tables <源.docx>` | 从源文档提取表格（含合并关系、表名）→ 可直接嵌入报告的 JSON |
 | `data template` / `data check <data.json>` | 生成数据骨架 / 校验手写数据 |
 | `omml <公式.md> [--compare 参照目录]` | LaTeX → Word 原生公式（OMML） |
 | `fill <模板> --map <map.json> [--data <data.json>] [--apply\|--auto]` | 按物理网格填值 + 插公式 |
-| `audit <成品> [--source <模板>] [--data <data.json>]` | 成品自检（交付前最后一道关） |
+| `audit <成品> [--source <模板>] [--data <data.json>]` | 成品自检：结构 / 公式 / **按模板提纲核对章节** / 占位 / 数据回读 / **文末附件** |
+| `attach <成品.docx> <图片…>` | 在报告末尾追加附件（一行标签 + 每页一张满宽图片，自动分页） |
 | `pdf <成品.docx> [--pages]` | 转 PDF；`--pages` 渲染成 PNG 供视觉复核 |
 | `install-skill --for <agent>` | 把适配页装进 Claude / DSH / Codex / Cursor |
 | `card list \| show \| new` | 实验知识卡：换实验只换一张卡 |
@@ -108,6 +152,7 @@ python examples/demo.py
 | 文档 | 内容 |
 |---|---|
 | [快速上手](docs/quickstart.md) | 安装、第一条命令、目录约定 |
+| [在 agent 里使用](docs/agent-usage.md) | 装进 Claude / DSH / Codex / Cursor，以及给 agent 的提示词 |
 | [标准工作流](docs/workflow.md) | 从照片到成品报告的 7 步，每步产出与确认点 |
 | [命令手册](docs/commands.md) | 9 条命令逐条说明 + 参数 + 退出码 |
 | [数据格式](docs/data-format.md) | `data.json` / `map.json` 全部字段与规则 |
