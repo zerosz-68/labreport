@@ -28,4 +28,13 @@ python tests/run_all.py \
 
 | 日期 | 环境 | 结果 |
 |---|---|---|
-| 2026-10 | Windows 11 + Python 3.12（内置运行时）+ Word COM | 24 通过 / 0 失败 / 0 跳过 |
+| 2026-10 | GitHub Actions · ubuntu / macos / windows × Python 3.9 / 3.12 | 6 个作业全部通过（不带 docx 的 15 个用例 + 安装冒烟） |
+| 2026-10 | Windows 11 + Python 3.12 + Word + 真实实验文件 | 24 通过 / 0 失败 / 0 跳过 |
+
+## CI 抓出过的真实问题（记下来免得重犯）
+
+| 问题 | 教训 |
+|---|---|
+| 无 docx 时 `pdf` 用例没跳过（`out_filled` 是路径字符串，恒为真） | 用"文件是否存在"判断，别用字符串真值 |
+| 回归测试排在 `pip install` 之前 | 测试会真的调用 CLI，依赖必须先装 |
+| Windows runner 的 cp1252 代码页下 `print` 中文崩溃 | 非 UTF-8 控制台要主动降级（`cli.py` 已处理并加了 CI 环境变量） |

@@ -10,6 +10,7 @@ venv/
 
 # 运行与测试产物
 tests/_out/
+examples/_out/
 _labreport_pdf_logs/
 *.plan.json
 

@@ -3,116 +3,161 @@
 [![CI](https://github.com/zerosz-68/labreport/actions/workflows/ci.yml/badge.svg)](https://github.com/zerosz-68/labreport/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://github.com/zerosz-68/labreport)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#跨平台与验证)
 
-通用实验报告 CLI。目标：**任何 agent、任何系统、任何实验**都能用同一套流程填报告。
+> **把实验数据填进 Word 实验报告模板的 CLI。**
+> 合并单元格不会错位、公式是 **Word 原生公式**、填完自动自检、能转 PDF 供肉眼复核。
 
-## 为什么是 CLI 而不是"胖 skill"
-
-| 代 | 形态 | 弱点 |
-|---|---|---|
-| 1 代 | 胖 skill，依赖别人的 skill | 换环境缺零件 |
-| 2 代 | 胖 skill，自带脚本 | 依赖靠人装、路径靠工具解析、流程靠模型自觉 |
-| **3 代** | **CLI 内核 + 薄 skill + 知识卡（本项目）** | 前期要多写代码 |
-
-CLI 负责确定性硬活；agent 负责需要"理解"的活（看手写照片、决定数据放哪）；
-知识卡沉淀每个实验的专业内容。
-
-## 安装
-
-```bash
-pip install git+https://github.com/<you>/labreport     # 或本地开发：pip install -e .
-labreport doctor                                       # 环境体检
+```console
+$ labreport inspect 报告模板.docx          # 看清表格物理网格（含合并单元格）
+$ labreport data check data.json           # 校验手写数据：单位/平均值/离群/公式重算
+$ labreport fill 报告模板.docx --map map.json --apply
+$ labreport audit 成品.docx --source 报告模板.docx --data data.json
+结论: 可以交付（error 0 / warn 0）
 ```
 
-**零安装兜底**（目标环境不方便装包时）：
+---
 
-```bash
-python run.py doctor
-python run.py inspect 模板.docx
-```
+## 目录
 
-## 命令
+- [它解决什么问题](#它解决什么问题)
+- [60 秒上手](#60-秒上手)
+- [工作流](#工作流)
+- [命令一览](#命令一览)
+- [三个核心概念](#三个核心概念)
+- [文档](#文档)
+- [项目结构](#项目结构)
+- [跨平台与验证](#跨平台与验证)
+- [设计取舍](#设计取舍)
+- [贡献与许可](#贡献与许可)
 
-| 命令 | 状态 | 作用 |
-|---|---|---|
-| `labreport doctor` | 完成 | 环境体检：Python 包、外部程序、中文字体（退出码 0 就绪 / 3 缺可选 / 1 缺核心） |
-| `labreport inspect <模板.docx>` | 完成 | 读结构：段落、**表格物理网格**、合并单元格、嵌套表、公式、图片、占位 |
-| `labreport omml <公式.md> [--compare 对照片段目录]` | 完成 | **LaTeX → Word 原生公式（OMML）**，内置转换，不依赖 pandoc |
-| `labreport data check <data.json>` | 完成 | 校验手写数据：**按 unit 自动归一化 SI**、平均值自洽、3σ 离群、公式重算与预期值比对、存疑标注 |
-| `labreport data template` | 完成 | 输出 data.json 骨架（给 agent 照着填） |
-| `labreport fill <模板> --map <map.json> [--data <data.json>] [-o 成品] [--apply\|--auto]` | 完成 | 按**物理网格坐标**填文本/追加/清空 + 插入原生公式；**默认只出计划**，`--apply`/`--auto` 才落地 |
-| `labreport audit <成品> [--source <模板>] [--data <data.json>]` | 完成 | 自检：结构对比、公式健康（空公式 / LaTeX 残留）、占位残留、**数据逐项回读**；exit 1 = 不可交付 |
-| `labreport pdf <成品.docx> [--pages]` | 完成 | 转 PDF（Word COM 或 LibreOffice）目检；`--pages` 再把每页渲染成 PNG 供视觉检查；无转换器时优雅降级（退出码 3） |
-| `labreport install-skill --for <agent>` | 完成 | 把适配页装进 Claude / DSH / Codex / Cursor（`--print` / `--dry-run` / `--list` / `--force`） |
-| `labreport card list \| show <实验> \| new <实验>` | 完成 | **实验知识卡**：内置卡 + 自建卡（`~/.labreport/cards`，同名覆盖；`LABREPORT_CARD_DIR` 可改） |
+---
 
-## 工作流（三个文件串起来）
+## 它解决什么问题
 
-```
-照片 ──agent 视觉──> data.json ──data check──> 校验通过
-                                                 │
-模板.docx ──inspect──> 物理网格坐标 ──map.json──> fill ──> 成品.docx（原生公式）
-                                                 │
-公式清单.md ──omml──> OMML 片段 ──────────────────┘
-```
-
-## 已验证（回归样例：扭摆法测转动惯量，全部真实文件）
-
-| 验证项 | 结果 |
+| 手工填实验报告的痛点 | labreport 的做法 |
 |---|---|
-| `omml` 28 条真实公式 vs pandoc 参照片段 | **28/28 结构逐字一致** |
-| `omml` 语料外公式（求和/积分/平均值/n 次根/不确定度传递） | 12/12 正常解析，无退化 |
-| 生成片段插入真实模板并重载 | 通过（分数/根号/求和结构完整） |
-| `inspect` 合并单元格还原 | 通过（模板 9 合并；成品 4 张嵌套表与 32 公式正确归属） |
-| `data check` 从原始数据重算 10 个目标量 | 与报告值相差 **0.003%–0.26%**（差异来自报告用了四舍五入的中间值） |
-| `data check` 负样本（D 少一位 + 周期抄错） | 8 error + 1 warn，明确指出「平均值不自洽：写了 1556，按 6 次算是 1573.33」，退出码 1 |
-| `fill` 按物理网格填 7 处 + 插 2 条公式 | **7/7 文本命中**（含合并单元格 r2c5/r2c7 等），OMML 2 条，表结构 6×8/9 合并保持不变 |
-| `fill` 默认不落地 | 通过（只出计划、打印旧值→新值，不写文件） |
-| `audit` 自检真实【已填写】报告 | **26/26 数据命中、0 error → 判定"可以交付"**；表几何 7×1 / 6×8 未变，公式 0→32，无 LaTeX 残留 |
-| `audit` 自检空白模板 / 半填产物 | 2/26、6/26 命中 → 正确报出"大量数据未填" |
-| `pdf` 目检真实报告（Word COM → PDF → PNG） | 通过：封面、表格页、**公式页**渲染正常（32 条原生公式全部由 Word 正确排版），中文与表格边框无破版；默认受限环境下也能跑（首次启动 Word 需放开文件权限——它要创建自己的用户配置，之后就绪） |
-| `install-skill` 四份适配页 | 通过：Claude/Cursor 写入幂等（重复安装提示"已是最新"）；Codex 的 `AGENTS.md` 用标记块替换，连装两次仍只有 1 个块 |
-| 适配页生效验证 | 把 Codex 版装到 `_test/AGENTS.md` 后，harness **立即把它当作该目录的指令加载**（已清理该测试产物） |
+| 表格有**合并单元格**，用 python-docx 按 `cells[r][c]` 填会整体错位 | 从 OOXML 的 `gridSpan`/`vMerge` 还原**物理网格**，按"屏幕上看到的行列"定位 |
+| 公式要一个个用 Word 公式编辑器敲 | 内置 **LaTeX → OMML** 转换（不依赖 pandoc），直接产出 Word 原生公式 |
+| 抄错一位数字，要人工从头核一遍 | `data check` 自动查：单位归一化、平均值自洽、3σ 离群、公式重算与预期值比对 |
+| 填完不知道有没有漏填 / 结构有没有被弄坏 | `audit` 对比模板结构、统计公式、扫占位残留、把数据**逐项回读** |
+| 让 AI 直接改 docx，常常把排版改烂 | 默认**只出填写计划**（旧值→新值），确认后才落地；改完还能 `pdf --pages` 出图复核 |
 
-> 打包（`pip install -e .`）在开发用的内置 Python 上无法验证——该发行版没有
-> setuptools 与 pip 引导；在正常 Python 环境按上面的安装命令即可。
-
-## 退出码约定
-
-- `0` 就绪 / 无 error（可交付）
-- `1` 缺核心依赖、文件或参数错误、校验出 error、定位失败
-- `2` 命令行用法错误（argparse 保留，业务不使用）
-- `3` 核心齐全但缺可选程序（功能降级，仍可用）
-
-## 知识卡（换实验只换一张卡）
+## 60 秒上手
 
 ```bash
-labreport card list                      # 看有哪些卡（内置 + 自建）
-labreport card show torsion-pendulum     # 读卡：公式 / 表结构 / 量级易错点 / 参考数据
-labreport card new 用单摆测重力加速度     # 没卡就用模板建一张，做完沉淀回去
+pip install git+https://github.com/zerosz-68/labreport
+labreport doctor          # 环境体检：依赖 / 可选程序 / 中文字体
 ```
-通用流程在 CLI 里，实验知识在卡里；卡目录可用 `LABREPORT_CARD_DIR` 指到项目内，随项目走。
 
-## 回归测试
+不想装东西也能用（零安装入口）：
 
 ```bash
-python tests/run_all.py                     # 不依赖 docx，跑一半以上用例
-python tests/run_all.py --docx-dir <目录> --frags-dir <目录>   # 全量
+git clone https://github.com/zerosz-68/labreport && cd labreport
+python run.py doctor
 ```
-最近一次（Windows 11 + Python 3.12 + Word COM）：**24 通过 / 0 失败 / 0 跳过**，详见 [tests/README.md](tests/README.md)。
 
-## 跨平台说明
+**看一个完整跑通的例子**（自动生成模板与数据，不需要任何真实报告）：
 
-**已实测（CI 证据在 Actions 页，每次推送自动跑）**
+```bash
+python examples/demo.py
+```
+
+它会造一份带合并单元格的模板，依次跑 `inspect → data check → fill → audit`，并打印每一步的关键输出。
+
+## 工作流
+
+```
+手写记录照片 ──agent 视觉──▶ data.json ──data check──▶ 校验通过（0 error）
+                                                          │
+报告模板.docx ──inspect──▶ 物理网格坐标 ──map.json──▶ fill ──▶ 成品.docx（原生公式）
+                                                          │
+公式清单.md ──omml──▶ OMML 片段 ────────────────────────────┘
+                                                          ▼
+                                          audit（自检）──▶ pdf --pages（看图复核）
+```
+
+- **谁能做什么**：看照片识别数字是 agent 的活；`labreport` 不看图，只负责确定性硬活与校验。
+- **人工确认**：`fill` 默认只打印计划（旧值 → 新值），加 `--apply` 才写文件；全自动场景用 `--auto`。
+
+## 命令一览
+
+| 命令 | 作用 |
+|---|---|
+| `doctor` | 环境体检（核心依赖 / 可选程序 / 中文字体） |
+| `inspect <模板.docx>` | 读结构：段落、**表格物理网格**、合并单元格、嵌套表、公式、图片、占位 |
+| `data template` / `data check <data.json>` | 生成数据骨架 / 校验手写数据 |
+| `omml <公式.md> [--compare 参照目录]` | LaTeX → Word 原生公式（OMML） |
+| `fill <模板> --map <map.json> [--data <data.json>] [--apply\|--auto]` | 按物理网格填值 + 插公式 |
+| `audit <成品> [--source <模板>] [--data <data.json>]` | 成品自检（交付前最后一道关） |
+| `pdf <成品.docx> [--pages]` | 转 PDF；`--pages` 渲染成 PNG 供视觉复核 |
+| `install-skill --for <agent>` | 把适配页装进 Claude / DSH / Codex / Cursor |
+| `card list \| show \| new` | 实验知识卡：换实验只换一张卡 |
+
+退出码：`0` 就绪/无 error · `1` 有错 · `2` 用法错误 · `3` 缺可选程序（降级但可用）。
+
+跑 `labreport <命令> --help` 看每个参数。
+
+## 三个核心概念
+
+1. **物理网格**：`{"table":2,"row":1,"col":2}` 指的是**屏幕上看到的**第 2 张表第 1 行第 2 列；落进哪个真实单元格由合并关系决定。这是它能正确填合并单元格的原因。
+2. **数据契约**：JSON 里 `value + unit` 按仪表/照片原样填（`1116.12 g`、`774 ms`），CLI 自动归一化到 SI 供公式使用；每个值都带 `source`，校验失败时知道该回看哪张照片的哪一格。
+3. **知识卡**：通用流程在 CLI 里，**每个实验特有的公式/表结构/量级易错点**在 `cards/<实验>.md`。换实验只加一张卡，不动代码。
+
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [快速上手](docs/quickstart.md) | 安装、第一条命令、目录约定 |
+| [标准工作流](docs/workflow.md) | 从照片到成品报告的 7 步，每步产出与确认点 |
+| [命令手册](docs/commands.md) | 9 条命令逐条说明 + 参数 + 退出码 |
+| [数据格式](docs/data-format.md) | `data.json` / `map.json` 全部字段与规则 |
+| [知识卡](docs/cards.md) | 怎么为新实验写卡、内置卡有哪些 |
+| [设计取舍](docs/design.md) | 为什么是"CLI 内核 + 薄 skill"，而不是再来一个胖 skill |
+| [常见问题](docs/faq.md) | 编码、合并单元格、公式、Word/LibreOffice、隐私、CI |
+| [回归测试](tests/README.md) | 用例覆盖与如何本地跑全量 |
+
+## 项目结构
+
+```
+labreport/
+├─ src/labreport/
+│  ├─ cli.py           命令行入口（9 个子命令）
+│  ├─ doctor.py        环境体检
+│  ├─ docx/            inspect（物理网格）· fill（填写）
+│  ├─ omml/            LaTeX → OMML 内置转换
+│  ├─ data/            数据校验（SI 归一化 / 统计 / 重算）
+│  ├─ audit/           成品自检（结构 / 公式 / 占位 / 回读）
+│  ├─ topdf.py         docx → PDF → PNG（目检）
+│  ├─ skills/          四份 agent 适配页（共用一份正文）
+│  └─ cards/           实验知识卡（内置 + 自建）
+├─ examples/demo.py    端到端演示（自动造模板与数据）
+├─ tests/              回归测试（fixtures + 一键脚本）
+└─ docs/               文档
+```
+
+## 跨平台与验证
 
 | 环境 | 覆盖 | 结果 |
 |---|---|---|
 | GitHub Actions · ubuntu / macos / windows × Python 3.9 / 3.12 | 安装 + 15 个不需要真实 docx 的用例 + 命令冒烟 | **6/6 全绿** |
 | Windows 11 + Python 3.12 + Word + 真实实验文件 | 全量 24 个用例（含 fill / audit / pdf→PNG 目检） | **24/24 通过** |
 
-- 代码是跨平台写的：路径用 `os.path`/`expanduser`、程序探测用 `shutil.which`、平台差异用 `sys.platform` 分支；
-- **非 UTF-8 控制台**（英文版 Windows 的 cp1252）也不会崩：`cli.py` 启动时把管道输出切成 UTF-8，终端输出保留原编码但把不可编码字符降级为 `?`（这是从 CI 的 Windows 作业里抓出来的真实 bug，已修）；
-- 两点平台差异仍需注意：
-  1. `pdf`：Windows 走 Word COM，macOS / Linux 走 `soffice --headless`（CI 只验证"没有转换器时优雅降级为退出码 3"，**真实转换未在 macOS/Linux 上验证**）；
-  2. 中文字体：macOS / Linux 建议装 Noto Sans CJK / Source Han Sans，否则 PDF 与图表中文可能缺字（`doctor` 会提示）。
-- 打包：CI 里 `pip install -e .` 在三个系统都能装（含 Python 3.9）；开发用的内置 Python 因缺 setuptools 无法本地验证，故提供 `run.py` 零安装入口。
+细节与仍未被 CI 覆盖的点（macOS/Linux 上 `pdf` 的真实转换、中文字体）见 [常见问题](docs/faq.md#跨平台)。
+
+## 设计取舍
+
+**CLI 负责确定性硬活，skill 负责让 agent 知道何时调用，知识卡负责实验特异性。**
+
+| 代 | 形态 | 弱点 |
+|---|---|---|
+| 1 代 | 胖 skill，依赖别的 skill | 换环境缺零件 |
+| 2 代 | 胖 skill，自带脚本 | 依赖靠人装、路径靠工具解析、流程靠模型自觉 |
+| **3 代** | **CLI 内核 + 薄 skill + 知识卡（本项目）** | 前期要多写代码 |
+
+展开阅读：[设计取舍](docs/design.md)。
+
+## 贡献与许可
+
+- 提 Issue / PR 前请先看 [CONTRIBUTING.md](CONTRIBUTING.md)；改动请跑 `python tests/run_all.py`。
+- MIT License，见 [LICENSE](LICENSE)。
