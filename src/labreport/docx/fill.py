@@ -213,6 +213,35 @@ def _ensure_cell_ends_with_paragraph(tc) -> None:
         tc.append(OxmlElement("w:p"))
 
 
+def _norm_cell_text(text) -> str:
+    """单元格文字规范化：折叠多余空白/制表符/换行，避免表格里出现空行与错位。"""
+    if text is None:
+        return ""
+    return re.sub(r"[ \t\u3000\r\n]+", " ", str(text)).strip()
+
+
+def _squash_empty_paragraphs(tbl) -> None:
+    """删掉合并后堆积的空段落。
+
+    python-docx 的 merge 会把被合并单元格的内容（每个格自带一个空段落）并进锚点格，
+    整行合并 8 列就会多出 7 个空段落，格子被撑成 8 行高——这就是"多余的回车"。
+    """
+    for tc in tbl._tbl.iter(W + "tc"):
+        paras = tc.findall(W + "p")
+        if len(paras) <= 1:
+            continue
+        for p in paras:
+            if len(tc.findall(W + "p")) <= 1:
+                break
+            text = "".join(t.text or "" for t in p.iter(W + "t"))
+            has_obj = (
+                p.find(".//" + M + "oMath") is not None
+                or p.find(".//" + W + "drawing") is not None
+            )
+            if not text.strip() and not has_obj:
+                tc.remove(p)
+
+
 def insert_table_spec(tc, spec: dict, doc, values: dict) -> dict:
     """在单元格末尾插入「表名一行 + 一张（可含合并的）表格」。
 
@@ -228,6 +257,9 @@ def insert_table_spec(tc, spec: dict, doc, values: dict) -> dict:
     name = spec.get("name") or ""
     if name:
         append_cell_text(tc, render_tpl(str(name), values))
+    # notes：表名与表格之间的说明行（如原表上方的"杆子和滑块总质量：685.43 g"）
+    for note in spec.get("notes") or []:
+        append_cell_text(tc, render_tpl(str(note), values))
 
     rows = len(grid)
     tbl = doc.add_table(rows=rows, cols=cols)  # 先建在文档尾部，稍后整体搬进单元格
@@ -241,7 +273,7 @@ def insert_table_spec(tc, spec: dict, doc, values: dict) -> dict:
         cells = list(row) + [""] * max(0, cols - len(row))
         for c in range(cols):
             raw = cells[c]
-            tbl.cell(r, c).text = render_tpl("" if raw is None else str(raw), values)
+            tbl.cell(r, c).text = render_tpl(_norm_cell_text(raw), values)
 
     # spec.formulas：{"行,列": "LaTeX"} —— 把这些格子写成 Word 原生公式
     # （原表里往往是"J₁=1/8mD²"这样的文字，要求公式格式正确时用它替换）
@@ -269,6 +301,7 @@ def insert_table_spec(tc, spec: dict, doc, values: dict) -> dict:
             tbl.cell(fr, fc)._tc, render_tpl(str(latex), values), append=False
         )
 
+    _squash_empty_paragraphs(tbl)   # 清掉合并堆积的空段落（否则格子被撑高）
     tbl.autofit = True
     _force_full_width(tbl)
     _force_borders(tbl)
@@ -300,7 +333,12 @@ def _expand_tables(targets: list, base_dir: str) -> list:
             out.append(t)
             continue
         path = ref if os.path.isabs(ref) else os.path.join(base_dir, ref)
-        for spec in load_table_specs(path):
+        specs = load_table_specs(path)
+        only = t.get("only")          # 只插入其中几张（1 起），便于在表与表之间插文字
+        if only:
+            wanted = {int(x) for x in only}
+            specs = [s for i, s in enumerate(specs, 1) if i in wanted]
+        for spec in specs:
             out.append(
                 {
                     "table": t.get("table"),

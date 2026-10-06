@@ -32,10 +32,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from .inspect import W, table_structure
 
 TITLE_MAX = 40
+
+
+def _norm(text) -> str:
+    """折叠空白/制表符/换行：避免提取出来的表格里带一堆空行与错位。"""
+    return re.sub(r"[ \t\u3000\r\n]+", " ", str(text or "")).strip()
 
 
 def _preceding_text(body, tbl) -> str:
@@ -59,7 +65,7 @@ def extract_table_spec(tbl, lift_title: bool = True, fallback_name: str = "") ->
     merges = []
     for a in st["cells"]:
         r, c = a["r"], a["c"]
-        grid[r][c] = a["text"]
+        grid[r][c] = _norm(a["text"])
         rowspan = 1 + int(a.get("vContinues") or 0)
         colspan = int(a.get("span") or 1)
         if rowspan > 1 or colspan > 1:

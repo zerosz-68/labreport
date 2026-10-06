@@ -17,9 +17,12 @@ import os
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.oxml import OxmlElement
 from docx.shared import Emu
+from docx.text.paragraph import Paragraph
 
 EMU_PER_CM = 360000
+CELL_MARGIN_CM = 0.4          # 单元格内边距，进框贴图时从可用宽度里扣掉
 
 
 def usable_box(doc):
@@ -47,20 +50,76 @@ def fit_size(path: str, box_w: int, box_h: int) -> tuple:
     return w, h
 
 
+def _trim_trailing_empty_paragraphs(doc) -> int:
+    """删掉文末多余的空段落。
+
+    模板在正文表格后面自带两个空段落，正文填满后会溢出一张几乎空白的页；
+    附件加进去以后更明显。这里只删"末尾连续的、完全没有内容的 w:p"。
+    """
+    from .inspect import M, W
+
+    body = doc.element.body
+    removed = 0
+    for ch in reversed(list(body)):
+        if ch.tag == W + "sectPr":
+            continue
+        if ch.tag != W + "p":
+            break
+        text = "".join(t.text or "" for t in ch.iter(W + "t")).strip()
+        has_obj = (
+            ch.find(".//" + W + "drawing") is not None
+            or ch.find(".//" + W + "pict") is not None
+            or ch.find(".//" + M + "oMath") is not None
+        )
+        if text or has_obj:
+            break
+        body.remove(ch)
+        removed += 1
+    return removed
+
+
+def _new_paragraph(container, doc) -> Paragraph:
+    """在文档末尾或某个单元格里新建段落。"""
+    if container is None:
+        return doc.add_paragraph()
+    el = OxmlElement("w:p")
+    container.append(el)
+    return Paragraph(el, doc)
+
+
+def resolve_cell(doc, into: str):
+    """按物理网格坐标 "表,行,列" 定位单元格（复用 fill 的定位逻辑）。"""
+    from .fill import _top_tables, locate_cell
+
+    parts = [p.strip() for p in str(into).replace("，", ",").split(",")]
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        raise ValueError('--into 需要“表,行,列”三个数字，例如 --into "2,6,1"')
+    t, r, c = (int(p) for p in parts)
+    return locate_cell({"table": t, "row": r, "col": c}, _top_tables(doc))
+
+
 def add_attachment(doc, images, label: str = "附件", page_break_between: bool = True,
-                   align_center: bool = True) -> dict:
-    """在文档末尾追加「标签行 + 每页一张的图片」。"""
+                   align_center: bool = True, container=None) -> dict:
+    """追加「标签行 + 每页一张的图片」。
+
+    container 给 None 时追加到文档末尾；给某个 `w:tc` 元素时追加进该单元格
+    （这样附件就在报告的表格框里，而不是漂在框外）。
+    """
     box_w, box_h = usable_box(doc)
+    if container is not None:
+        box_w = max(int(box_w - CELL_MARGIN_CM * EMU_PER_CM), int(box_w * 0.6))
+        # 单元格内还要放标签行与单元格内边距，按 85% 高度留余量：
+        # 图若正好占满一页，表格底框会被挤到下一页，多出一张空白页
+        box_h = int(box_h * 0.85)
     added = []
 
     if label:
-        p = doc.add_paragraph()
-        p.add_run(label)
+        _new_paragraph(container, doc).add_run(label)
 
     first = True
     for path in images:
         w, h = fit_size(path, box_w, box_h)
-        p = doc.add_paragraph()
+        p = _new_paragraph(container, doc)
         if align_center:
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         if not first and page_break_between:
@@ -91,8 +150,17 @@ def run(args) -> int:
 
     doc = Document(doc_path)
     box_w, box_h = usable_box(doc)
+    container, where = None, "文档末尾"
+    if getattr(args, "into", None):
+        try:
+            container, where = resolve_cell(doc, args.into)
+        except Exception as exc:  # noqa: BLE001
+            print(f"定位失败：{exc}")
+            return 1
+        box_w = max(int(box_w - CELL_MARGIN_CM * EMU_PER_CM), int(box_w * 0.6))
 
     print(f"文档     : {doc_path}")
+    print(f"位置     : {where}" + ("（在表格框里）" if container is not None else "（在框外）"))
     print(f"标签行   : {args.label or '（不加标签）'}")
     print(f"版心     : {cm(box_w)} cm × {cm(box_h)} cm（满宽优先，超高则按高自适应）")
     print(f"排版     : 每张独占一页（图间分页）")
@@ -109,12 +177,15 @@ def run(args) -> int:
     result = add_attachment(
         doc, images, label=args.label,
         page_break_between=not getattr(args, "no_page_break", False),
+        container=container,
     )
     out_path = args.out or _default_out(doc_path)
+    trimmed = _trim_trailing_empty_paragraphs(doc)
     doc.save(out_path)
     print(f"\n已写出：{out_path}")
     print(f"       文末追加 {len(result['images'])} 张图片"
-          + (f"，标签行「{result['label']}」" if result["label"] else ""))
+          + (f"，标签行「{result['label']}」" if result["label"] else "")
+          + (f"；清掉文末 {trimmed} 个空段落（避免多出空白页）" if trimmed else ""))
     return 0
 
 

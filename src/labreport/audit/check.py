@@ -340,18 +340,18 @@ def audit(
     elif outline:
         report["outline"] = {"items": [], "missing": [], "note": "未提供 --source，跳过提纲核对"}
 
-    # ---------- 6. 文末附件（如课堂报告书原件）
-    body = doc.element.body
-    label_idx = None
-    for i, ch in enumerate(body):
-        if ch.tag == W + "p" and attachment_label and attachment_label in "".join(
-            t.text or "" for t in ch.iter(W + "t")
-        ):
-            label_idx = i
+    # ---------- 6. 文末附件（如课堂报告书原件；可能在表格框里，所以要全文找）
+    order = list(doc.element.body.iter(W + "p"))
+    label_pos = []
+    for i, p in enumerate(order):
+        text = "".join(t.text or "" for t in p.iter(W + "t")).strip()
+        if attachment_label and (text == attachment_label or text.startswith(attachment_label)):
+            label_pos.append(i)
+    label_idx = label_pos[-1] if label_pos else None
     images_after = 0
     if label_idx is not None:
-        for ch in list(body)[label_idx:]:
-            images_after += len(list(ch.iter(W + "drawing"))) + len(list(ch.iter(W + "pict")))
+        for p in order[label_idx:]:
+            images_after += len(list(p.iter(W + "drawing"))) + len(list(p.iter(W + "pict")))
     report["attachment"] = {
         "label": attachment_label,
         "foundLabel": label_idx is not None,

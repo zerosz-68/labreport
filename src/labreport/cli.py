@@ -93,6 +93,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_att.add_argument("docx", help="待追加的 .docx（通常是填好的成品）")
     p_att.add_argument("images", nargs="+", help="附件图片，按顺序（如课堂报告书第 1、2 页）")
     p_att.add_argument("--label", default="附件", help='标签行文字（默认"附件"，给空串则不加）')
+    p_att.add_argument(
+        "--into", help='放进指定单元格（"表,行,列"，1 起）——这样附件在报告框内；不给则追加到文档末尾'
+    )
     p_att.add_argument("-o", "--out", help="输出文件（默认 <原名>-含附件.docx）")
     p_att.add_argument("--no-page-break", action="store_true", help="图片之间不插入分页符")
     p_att.add_argument("--apply", action="store_true", help="真正写文件（默认只出计划）")
